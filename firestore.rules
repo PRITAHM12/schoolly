@@ -1,0 +1,39 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // 0. Global Safety Net
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // --- Helpers ---
+    function isSignedIn() { return request.auth != null; }
+    function isOwner(userId) { return isSignedIn() && request.auth.uid == userId; }
+    function isVerified() { return request.auth.token.email_verified == true; }
+    function incoming() { return request.resource.data; }
+    function existing() { return resource.data; }
+    function isValidId(id) { return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$'); }
+    
+    // --- Validation Blueprints ---
+    function isValidLead(data) {
+      return data.schoolName is string && data.schoolName.size() <= 256 &&
+             data.contactName is string && data.contactName.size() <= 128 &&
+             data.email is string && data.email.size() <= 256 &&
+             data.phone is string && data.phone.size() <= 20 &&
+             data.status in ['new', 'contacted', 'demo-scheduled', 'pilot-started', 'lost'];
+    }
+
+    // --- Collections ---
+
+    // Leads (Open for submission, restricted for management)
+    match /leads/{leadId} {
+      allow create: if isValidLead(incoming()) && incoming().createdAt == request.time;
+      allow read, write: if isSignedIn() && isVerified(); // Assuming only you/admins sign in for now
+    }
+
+    // Schools
+    match /schools/{schoolId} {
+      allow read, write: if isSignedIn() && isVerified();
+    }
+  }
+}
